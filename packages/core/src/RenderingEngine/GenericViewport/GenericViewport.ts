@@ -13,6 +13,8 @@ import type {
   DisplaySetId,
   DataProvider,
   LoadedData,
+  PreparedRenderPathAttachment,
+  RenderPathAttachment,
   ViewportDataBinding,
   RenderPathResolver,
   ViewportController,
@@ -610,6 +612,69 @@ abstract class GenericViewport<
     this.render();
 
     return true;
+  }
+
+  protected async prepareLoadedData(
+    data: LoadedData,
+    options: DataAddOptions,
+    transactionId: string
+  ): Promise<PreparedRenderPathAttachment<TDataPresentation>> {
+    if (this.isDestroyed) {
+      throw new Error('Viewport has been destroyed');
+    }
+
+    const path = this.renderPathResolver.resolve<TContext>(
+      this.type,
+      data,
+      options
+    );
+    const renderPath = path.createRenderPath();
+    if (!renderPath.prepareData) {
+      throw new Error(
+        `Render path ${path.id} does not support staged attachments`
+      );
+    }
+    const ctx = path.selectContext?.(this.renderContext) ?? this.renderContext;
+
+    return (await renderPath.prepareData(
+      ctx,
+      data,
+      options,
+      transactionId
+    )) as PreparedRenderPathAttachment<TDataPresentation>;
+  }
+
+  protected publishPreparedData(
+    displaySetId: DisplaySetId,
+    data: LoadedData,
+    options: DataAddOptions,
+    attachment: RenderPathAttachment<TDataPresentation>
+  ): void {
+    const role = options.role ?? 'overlay';
+
+    if (role === 'source') {
+      for (const binding of this.bindings.values()) {
+        binding.role = 'overlay';
+      }
+    }
+
+    this.bindings.set(displaySetId, {
+      data,
+      role,
+      ...attachment,
+    });
+
+    const binding = this.bindings.get(displaySetId);
+    if (!binding) {
+      throw new Error(`Failed to publish rendering for ${displaySetId}`);
+    }
+    const props = this.dataPresentation.get(displaySetId);
+    if (props !== undefined) {
+      binding.updateDataPresentation(props);
+    }
+    binding.applyViewState(this.viewState);
+    this._debug.renderModes[displaySetId] = attachment.rendering.renderMode;
+    this.viewportStatus = ViewportStatus.PRE_RENDER;
   }
 
   protected removeAllData(): void {

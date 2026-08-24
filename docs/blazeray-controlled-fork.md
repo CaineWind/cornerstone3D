@@ -20,6 +20,19 @@ candidate attachment is prepared and validated. It must provide exact
 `commit` and `abort` behavior. A failed candidate must not mutate the active
 binding, render mode, or viewport identity.
 
+## Staged Attachment Status
+
+`PlanarViewport.stageDisplaySets` admits only render paths that explicitly
+implement `prepareData`. The transaction rejects stale candidates, validates
+all prepared attachments before publication, commits the candidate projection
+before retiring the active bindings, and makes abort idempotent.
+
+BlazeRay's controlled WebGPU render path is the first adapter. It prepares a
+hidden renderer, validates one submitted GPU frame, swaps the renderer under an
+identity guard, and prevents cleanup from an older generation from deleting the
+committed renderer. Built-in WebGL paths do not yet implement `prepareData` and
+must continue to report destructive replacement semantics.
+
 ## Release Rules
 
 Packages from this branch must use a distinct internal prerelease version and

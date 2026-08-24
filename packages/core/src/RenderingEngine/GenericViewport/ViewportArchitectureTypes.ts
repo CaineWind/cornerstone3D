@@ -81,6 +81,19 @@ export interface RenderPathAttachment<TPresentation = unknown> {
   removeData(): void;
 }
 
+export interface PreparedRenderPathAttachment<TPresentation = unknown> {
+  attachment: RenderPathAttachment<TPresentation>;
+  validate(): void | Promise<void>;
+  commit(): void;
+  abort(): void;
+}
+
+export interface StagedDisplaySetAttachment {
+  validate(): Promise<void>;
+  commit(): Promise<void>;
+  abort(): Promise<void>;
+}
+
 export interface BaseViewportRenderContext {
   viewportId: ViewportId;
   renderingEngineId?: string;
@@ -95,6 +108,12 @@ export interface RenderPath<
     data: LoadedData,
     options: DataAddOptions
   ): Promise<RenderPathAttachment>;
+  prepareData?(
+    ctx: TContext,
+    data: LoadedData,
+    options: DataAddOptions,
+    transactionId: string
+  ): Promise<PreparedRenderPathAttachment>;
 }
 
 export interface RenderPathDefinition<

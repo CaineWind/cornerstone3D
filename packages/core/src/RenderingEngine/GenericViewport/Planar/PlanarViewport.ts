@@ -43,6 +43,8 @@ import renderingEngineCache from '../../renderingEngineCache';
 import { getCameraVectors } from '../../helpers/getCameraVectors';
 import type {
   LoadedData,
+  PreparedRenderPathAttachment,
+  StagedDisplaySetAttachment,
   ViewportDataBinding,
   ViewportDataReference,
 } from '../ViewportArchitectureTypes';
@@ -174,6 +176,7 @@ class PlanarViewport extends GenericViewport<
     canvasWidth: number;
   };
   private setDataRequestId = 0;
+  private stagedDisplaySetRequestId = 0;
   private renderPipelineSwapId = 0;
   // Last reported render-path error message per display set; a successful
   // render clears the entry so a genuine repeat failure after recovery is
@@ -390,6 +393,123 @@ class PlanarViewport extends GenericViewport<
         isStale
       );
     }
+  }
+
+  async stageDisplaySets(
+    ...entries: Array<{
+      displaySetId: string;
+      options?: PlanarSetDataOptions;
+    }>
+  ): Promise<StagedDisplaySetAttachment> {
+    const requestId = ++this.stagedDisplaySetRequestId;
+    const transactionId = `${this.renderingEngineId}:${this.id}:${requestId}`;
+    const prepared: Array<{
+      dataId: string;
+      data: LoadedData<PlanarPayload>;
+      options: PlanarSetDataOptions;
+      attachment: PreparedRenderPathAttachment<PlanarDataPresentation>;
+    }> = [];
+
+    try {
+      for (const [index, { displaySetId, options = {} }] of entries.entries()) {
+        const role = options.role ?? (index === 0 ? 'source' : 'overlay');
+        const resolvedOptions: PlanarSetDataOptions = { ...options, role };
+        const { data, selectedPath } = await this.loadPlanarData(
+          displaySetId,
+          resolvedOptions
+        );
+        const attachment = await this.prepareLoadedData(
+          data,
+          { renderMode: selectedPath.renderMode, role },
+          transactionId
+        );
+        prepared.push({
+          dataId: displaySetId,
+          data,
+          options: resolvedOptions,
+          attachment,
+        });
+      }
+    } catch (error) {
+      for (const candidate of prepared.reverse()) {
+        candidate.attachment.abort();
+      }
+      throw error;
+    }
+
+    let state: 'prepared' | 'validated' | 'committed' | 'aborted' = 'prepared';
+    const assertCurrent = (): void => {
+      if (requestId !== this.stagedDisplaySetRequestId) {
+        throw new Error(
+          `Staged display-set attachment is stale: ${transactionId}`
+        );
+      }
+      if (this.isDestroyed) {
+        throw new Error('Viewport has been destroyed');
+      }
+    };
+
+    return {
+      validate: async (): Promise<void> => {
+        if (state === 'validated') {
+          return;
+        }
+        if (state !== 'prepared') {
+          throw new Error(`Cannot validate a ${state} display-set attachment`);
+        }
+        assertCurrent();
+        for (const candidate of prepared) {
+          await candidate.attachment.validate();
+        }
+        assertCurrent();
+        state = 'validated';
+      },
+      commit: async (): Promise<void> => {
+        if (state === 'committed') {
+          return;
+        }
+        if (state !== 'validated') {
+          throw new Error(`Cannot commit a ${state} display-set attachment`);
+        }
+        assertCurrent();
+
+        for (const candidate of prepared) {
+          candidate.attachment.commit();
+        }
+        this.removeReplaceableData(entries);
+        for (const candidate of prepared) {
+          this.publishPreparedData(
+            candidate.dataId,
+            candidate.data,
+            {
+              renderMode: candidate.attachment.attachment.rendering.renderMode,
+              role: candidate.options.role,
+            },
+            candidate.attachment.attachment
+          );
+          this.mountOptionsByDataId.set(candidate.dataId, candidate.options);
+          this.setDefaultDataPresentation(candidate.dataId, { visible: true });
+        }
+        const source = prepared.find(
+          (candidate) => candidate.options.role === 'source'
+        );
+        if (source) {
+          this.mountedData.promoteSourceDataId(source.dataId);
+        }
+        this.clearResolvedViewCache();
+        state = 'committed';
+        this.render();
+      },
+      abort: async (): Promise<void> => {
+        if (state === 'aborted' || state === 'committed') {
+          return;
+        }
+        for (const candidate of [...prepared].reverse()) {
+          candidate.attachment.abort();
+        }
+        state = 'aborted';
+      },
+    };
   }
 
   /**
