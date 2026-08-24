@@ -30,16 +30,13 @@ async function setDefaultVolumeVOI(
 ): Promise<void> {
   const voi = await getDefaultVolumeVOIRange(imageVolume);
 
-  if (
-    !voi ||
-    (voi.lower === 0 && voi.upper === 0) ||
-    voi.lower === undefined ||
-    voi.upper === undefined
-  ) {
+  if (!voi || voi.lower === undefined || voi.upper === undefined) {
     return;
   }
 
-  ensureRGBTransferFunction(volumeActor).setMappingRange(voi.lower, voi.upper);
+  const lower = voi.lower;
+  const upper = voi.lower === voi.upper ? voi.upper + 1 : voi.upper;
+  ensureRGBTransferFunction(volumeActor).setMappingRange(lower, upper);
 }
 
 function ensureRGBTransferFunction(volumeActor: VolumeActor | ImageActor) {
@@ -136,7 +133,11 @@ function getVOIFromMetadata(imageVolume: IImageVolume): VOIRange | undefined {
     const imageIdIndex = Math.floor(imageIds.length / 2);
     const imageId = imageIds[imageIdIndex];
     const voiLutModule = metaData.get(MetadataModules.VOI_LUT, imageId);
-    if (voiLutModule && voiLutModule.windowWidth && voiLutModule.windowCenter) {
+    if (
+      voiLutModule &&
+      voiLutModule.windowWidth !== undefined &&
+      voiLutModule.windowCenter !== undefined
+    ) {
       if (voiLutModule?.voiLUTFunction) {
         voi = {};
         voi.voiLUTFunction = voiLutModule?.voiLUTFunction;
@@ -157,7 +158,12 @@ function getVOIFromMetadata(imageVolume: IImageVolume): VOIRange | undefined {
     voi = metadata.voiLut[0];
   }
 
-  if (voi && (voi.windowWidth !== 0 || voi.windowCenter !== 0)) {
+  if (
+    voi &&
+    voi.windowWidth !== undefined &&
+    voi.windowWidth !== 0 &&
+    voi.windowCenter !== undefined
+  ) {
     const { lower, upper } = windowLevel.toLowHighRange(
       Number(voi.windowWidth),
       Number(voi.windowCenter),
