@@ -38,18 +38,55 @@ function vtkStreamingOpenGLTexture(publicAPI, model) {
     height,
     depth,
     numberOfComponents,
+    numComps,
     dataType,
     data,
     preferSizeOverAccuracy,
+    updatedExtents,
   }) => {
+    const resolvedNumComps = numberOfComponents ?? numComps;
     model.inputDataType = dataType;
-    model.inputNumComps = numberOfComponents;
+    model.inputNumComps = resolvedNumComps;
+
+    if (data === null) {
+      publicAPI.getOpenGLDataType(dataType);
+      const isExactHalfFloat = !!preferSizeOverAccuracy;
+      let useHalfFloat = false;
+
+      if (model._openGLRenderWindow.getWebgl2()) {
+        const forceHalfFloat =
+          model.openGLDataType === model.context.FLOAT &&
+          model.context.getExtension('OES_texture_float_linear') === null &&
+          isExactHalfFloat;
+        useHalfFloat =
+          forceHalfFloat || model.openGLDataType === model.context.HALF_FLOAT;
+      } else {
+        const halfFloatExt = model.context.getExtension(
+          'OES_texture_half_float'
+        );
+        useHalfFloat =
+          !!halfFloatExt &&
+          model.openGLDataType === halfFloatExt.HALF_FLOAT_OES;
+      }
+
+      model.canUseHalfFloat = useHalfFloat && isExactHalfFloat;
+      publicAPI.create3DFromRaw({
+        width,
+        height,
+        depth,
+        numComps: resolvedNumComps,
+        dataType,
+        data: null,
+        updatedExtents,
+      });
+      return;
+    }
 
     superCreate3DFilterableFromRaw({
       width,
       height,
       depth,
-      numberOfComponents,
+      numComps: resolvedNumComps,
       dataType,
       data,
       preferSizeOverAccuracy,
@@ -60,8 +97,16 @@ function vtkStreamingOpenGLTexture(publicAPI, model) {
 
   publicAPI.updateVolumeInfoForGL = (dataType, numComps) => {
     const isScalingApplied = superUpdate(dataType, numComps);
-    model.volumeInfo.dataComputedScale = [1];
-    model.volumeInfo.dataComputedOffset = [0];
+    const volume = model.volumeId ? cache.getVolume(model.volumeId) : null;
+    const range = volume?.voxelManager?.getRange?.();
+    const min = Array.isArray(range) ? range[0] : 0;
+    const max = Array.isArray(range) ? range[1] : 0;
+    const scale =
+      Number.isFinite(max) && Number.isFinite(min) ? max - min || 1 : 1;
+    const offset = Number.isFinite(min) ? min : 0;
+    const n = Math.max(1, Math.min(numComps ?? 1, 4));
+    model.volumeInfo.dataComputedScale = new Array(n).fill(scale);
+    model.volumeInfo.dataComputedOffset = new Array(n).fill(offset);
     return isScalingApplied;
   };
 

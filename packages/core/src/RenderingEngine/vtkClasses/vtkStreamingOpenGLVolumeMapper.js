@@ -8,7 +8,6 @@ import { getTransferFunctionsHash } from '@kitware/vtk.js/Rendering/OpenGL/Rende
 import { Representation } from '@kitware/vtk.js/Rendering/Core/Property/Constants';
 import { BlendMode } from '@kitware/vtk.js/Rendering/Core/VolumeMapper/Constants';
 import { getCanUseNorm16Texture } from '../../init';
-import canUseFloatOpacityTexture from './canUseFloatOpacityTexture';
 
 /**
  * vtkStreamingOpenGLVolumeMapper - A derived class of the core vtkOpenGLVolumeMapper class.
@@ -127,6 +126,20 @@ function vtkStreamingOpenGLVolumeMapper(publicAPI, model) {
     publicAPI.renderPieceFinish(ren, actor);
   };
 
+  const superRenderPieceStart = publicAPI.renderPieceStart;
+  publicAPI.renderPieceStart = (ren, actor) => {
+    superRenderPieceStart(ren, actor);
+    if (
+      model._openGLRenderWindow?.getWebgl2?.() &&
+      model.context?.getExtension?.('OES_texture_float_linear') === null
+    ) {
+      model.scalarTextures?.forEach((texture) => {
+        texture?.setMinificationFilter?.(Filter.NEAREST);
+        texture?.setMagnificationFilter?.(Filter.NEAREST);
+      });
+    }
+  };
+
   /**
    * buildBufferObjects - A fork of vtkOpenGLVolumeMapper's buildBufferObjects method.
    * This fork performs most of the same actions, but builds the textures progressively using
@@ -156,9 +169,13 @@ function vtkStreamingOpenGLVolumeMapper(publicAPI, model) {
 
     const volumeProperties = actor.getProperties();
     const firstValidInput = model.currentValidInputs[0];
+    const firstImageData = firstValidInput.imageData;
     const firstVolumeProperty = volumeProperties[firstValidInput.inputIndex];
-    const numberOfComponents = model.numberOfComponents;
-    const useIndependentComps = model.useIndependentComponents;
+    const inputNumberOfComponents =
+      firstImageData?.get?.('numberOfComponents')?.numberOfComponents ?? 1;
+    const numberOfComponents =
+      model.numberOfComponents ?? inputNumberOfComponents;
+    const useIndependentComps = !!model.useIndependentComponents;
     const numIComps = useIndependentComps ? numberOfComponents : 1;
 
     // rebuild opacity tfun?
@@ -205,34 +222,18 @@ function vtkStreamingOpenGLVolumeMapper(publicAPI, model) {
       }
 
       newOpacityTexture.resetFormatAndType();
-      newOpacityTexture.setMinificationFilter(Filter.LINEAR);
-      newOpacityTexture.setMagnificationFilter(Filter.LINEAR);
-
-      // use float texture where possible because we really need the resolution
-      // for this table. Errors in low values of opacity accumulate to
-      // visible artifacts. High values of opacity quickly terminate without
-      // artifacts.
-      if (canUseFloatOpacityTexture(model._openGLRenderWindow, model.context)) {
-        newOpacityTexture.create2DFromRaw({
-          width: oWidth,
-          height: 2 * numIComps,
-          numComps: 1,
-          dataType: VtkDataTypes.FLOAT,
-          data: ofTable,
-        });
-      } else {
-        const oTable = new Uint8ClampedArray(oSize);
-        for (let i = 0; i < oSize; ++i) {
-          oTable[i] = 255.0 * ofTable[i];
-        }
-        newOpacityTexture.create2DFromRaw({
-          width: oWidth,
-          height: 2 * numIComps,
-          numComps: 1,
-          dataType: VtkDataTypes.UNSIGNED_CHAR,
-          data: oTable,
-        });
-      }
+      const hasFloatLinear =
+        model.context.getExtension('OES_texture_float_linear') !== null;
+      const opacityFilter = hasFloatLinear ? Filter.LINEAR : Filter.NEAREST;
+      newOpacityTexture.setMinificationFilter(opacityFilter);
+      newOpacityTexture.setMagnificationFilter(opacityFilter);
+      newOpacityTexture.create2DFromRaw({
+        width: oWidth,
+        height: 2 * numIComps,
+        numComps: 1,
+        dataType: VtkDataTypes.FLOAT,
+        data: ofTable,
+      });
       if (firstScalarOpacityFunc) {
         model._openGLRenderWindow.setGraphicsResourceForObject(
           firstScalarOpacityFunc,
@@ -352,10 +353,7 @@ function vtkStreamingOpenGLVolumeMapper(publicAPI, model) {
           const dims = imageData.getDimensions();
           currentTexture.setOpenGLRenderWindow(model._openGLRenderWindow);
 
-          // Set not to use half float initially since we don't know if the
-          // streamed data is actually half float compatible or not yet, as
-          // the data has not arrived due to streaming
-          currentTexture.enableUseHalfFloat(false);
+          currentTexture.enableUseHalfFloat(true);
 
           const previousTextureParameters =
             currentTexture.getTextureParameters();
