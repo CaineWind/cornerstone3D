@@ -8,6 +8,13 @@ export const EPSILON = 1e-4;
  */
 let canvasCreator;
 
+function normalizeRenderScale(renderScale = 1): number {
+  if (Number.isFinite(renderScale) && renderScale > 0 && renderScale <= 1) {
+    return renderScale;
+  }
+  return 1;
+}
+
 /**
  * Create a canvas and append it to the element
  *
@@ -93,13 +100,15 @@ export type ViewportCanvasExtent =
  */
 export function updateCanvasSizeAndAspectRatio(
   canvas: HTMLCanvasElement,
-  extentOrOffscreen?: ViewportCanvasExtent
+  extentOrOffscreen?: ViewportCanvasExtent,
+  renderScale = 1
 ): boolean | undefined {
+  const scale = normalizeRenderScale(renderScale);
   if (extentOrOffscreen === undefined) {
     const devicePixelRatio = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    const w = Math.round(rect.width * devicePixelRatio);
-    const h = Math.round(rect.height * devicePixelRatio);
+    const w = Math.round(rect.width * devicePixelRatio * scale);
+    const h = Math.round(rect.height * devicePixelRatio * scale);
     if (w > 0 && h > 0) {
       canvas.width = w;
       canvas.height = h;
@@ -139,7 +148,10 @@ export function updateCanvasSizeAndAspectRatio(
  * @param element - An HTML Element
  * @returns canvas a Canvas DOM element
  */
-export function getOrCreateCanvas(element: HTMLDivElement): HTMLCanvasElement {
+export function getOrCreateCanvas(
+  element: HTMLDivElement,
+  renderScale = 1
+): HTMLCanvasElement {
   const canvasSelector = `canvas.${CANVAS_CSS_CLASS}`;
   const viewportElement = `div.${VIEWPORT_ELEMENT}`;
 
@@ -164,8 +176,9 @@ export function getOrCreateCanvas(element: HTMLDivElement): HTMLCanvasElement {
   // Thus, it is the ceiling of the CSS size times the physical pixels.
   // In theory, the physical pixels can be offset from CSS pixels, but in practice
   // this hasn't been observed.
-  const width = Math.ceil(rect.width * devicePixelRatio);
-  const height = Math.ceil(rect.height * devicePixelRatio);
+  const scale = normalizeRenderScale(renderScale);
+  const width = Math.ceil(rect.width * devicePixelRatio * scale);
+  const height = Math.ceil(rect.height * devicePixelRatio * scale);
   // does weird things given 0 or NaN for the division
   // Also weird when the canvas size is zero
   if (width > 0 && height > 0) {

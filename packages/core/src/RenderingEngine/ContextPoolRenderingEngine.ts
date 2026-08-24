@@ -28,6 +28,18 @@ import type {
 import { getViewportClassForInput } from './helpers/viewportTypeToViewportClass';
 import { isGenericViewport } from '../utilities/viewportCapabilities';
 
+const getViewportRenderScale = (viewportLike: {
+  options?: { renderScale?: number };
+  defaultOptions?: { renderScale?: number };
+}): number => {
+  const renderScale =
+    viewportLike.options?.renderScale ??
+    viewportLike.defaultOptions?.renderScale;
+  return Number.isFinite(renderScale) && renderScale > 0 && renderScale <= 1
+    ? renderScale
+    : 1;
+};
+
 /**
  * ContextPoolRenderingEngine extends BaseRenderingEngine to provide parallel rendering
  * capabilities using multiple WebGL contexts for improved performance.
@@ -70,8 +82,11 @@ class ContextPoolRenderingEngine extends BaseRenderingEngine {
 
     const canvasesDrivenByVtkJs = viewportsDrivenByVtkJs.map((vp) => vp.canvas);
 
-    const canvas = getOrCreateCanvas(viewportInputEntry.element);
-    updateCanvasSizeAndAspectRatio(canvas);
+    const renderScale = getViewportRenderScale({
+      defaultOptions: viewportInputEntry.defaultOptions,
+    });
+    const canvas = getOrCreateCanvas(viewportInputEntry.element, renderScale);
+    updateCanvasSizeAndAspectRatio(canvas, undefined, renderScale);
     canvasesDrivenByVtkJs.push(canvas);
 
     const internalViewportEntry = { ...viewportInputEntry, canvas };
@@ -184,12 +199,20 @@ class ContextPoolRenderingEngine extends BaseRenderingEngine {
   ) {
     if (viewportInputEntries.length) {
       const vtkDrivenCanvases = viewportInputEntries.map((vp) =>
-        getOrCreateCanvas(vp.element)
+        getOrCreateCanvas(
+          vp.element,
+          getViewportRenderScale({
+            defaultOptions: vp.defaultOptions,
+          })
+        )
       );
 
-      vtkDrivenCanvases.forEach((canvas) =>
-        updateCanvasSizeAndAspectRatio(canvas)
-      );
+      vtkDrivenCanvases.forEach((canvas, index) => {
+        const renderScale = getViewportRenderScale({
+          defaultOptions: viewportInputEntries[index].defaultOptions,
+        });
+        updateCanvasSizeAndAspectRatio(canvas, undefined, renderScale);
+      });
 
       for (let i = 0; i < viewportInputEntries.length; i++) {
         const vtkDrivenViewportInputEntry = viewportInputEntries[i];
@@ -220,12 +243,17 @@ class ContextPoolRenderingEngine extends BaseRenderingEngine {
     displayedHeight: number;
   } {
     const devicePixelRatio = window.devicePixelRatio || 1;
+    const renderScale = getViewportRenderScale(vp);
     const sizeSource = isGenericViewport(vp)
       ? vp.element
-      : getOrCreateCanvas(vp.element);
+      : getOrCreateCanvas(vp.element, renderScale);
     return {
-      displayedWidth: Math.round(sizeSource.clientWidth * devicePixelRatio),
-      displayedHeight: Math.round(sizeSource.clientHeight * devicePixelRatio),
+      displayedWidth: Math.round(
+        sizeSource.clientWidth * devicePixelRatio * renderScale
+      ),
+      displayedHeight: Math.round(
+        sizeSource.clientHeight * devicePixelRatio * renderScale
+      ),
     };
   }
 
@@ -245,7 +273,7 @@ class ContextPoolRenderingEngine extends BaseRenderingEngine {
     // Compute target display size (pixels the canvas is actually displayed at) for each viewport
     const viewportsNeedingResize: (IStackViewport | IVolumeViewport)[] = [];
     for (const vp of vtkDrivenViewports) {
-      const canvas = getOrCreateCanvas(vp.element);
+      const canvas = getOrCreateCanvas(vp.element, getViewportRenderScale(vp));
       const { displayedWidth, displayedHeight } = this._getDisplayedSize(vp);
 
       if (displayedWidth === 0 || displayedHeight === 0) {

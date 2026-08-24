@@ -19,6 +19,18 @@ import type {
 } from '../types/IViewport';
 import { getViewportClassForInput } from './helpers/viewportTypeToViewportClass';
 
+const getViewportRenderScale = (viewportLike: {
+  options?: { renderScale?: number };
+  defaultOptions?: { renderScale?: number };
+}): number => {
+  const renderScale =
+    viewportLike.options?.renderScale ??
+    viewportLike.defaultOptions?.renderScale;
+  return Number.isFinite(renderScale) && renderScale > 0 && renderScale <= 1
+    ? renderScale
+    : 1;
+};
+
 interface ViewportDisplayCoords {
   sxStartDisplayCoords: number;
   syStartDisplayCoords: number;
@@ -96,7 +108,12 @@ class TiledRenderingEngine extends BaseRenderingEngine {
 
     const canvasesDrivenByVtkJs = viewportsDrivenByVtkJs.map((vp) => vp.canvas);
 
-    const canvas = getOrCreateCanvas(viewportInputEntry.element);
+    const canvas = getOrCreateCanvas(
+      viewportInputEntry.element,
+      getViewportRenderScale({
+        defaultOptions: viewportInputEntry.defaultOptions,
+      })
+    );
     canvasesDrivenByVtkJs.push(canvas);
 
     // 2.c Calculating the new size for offScreen Canvas
@@ -237,16 +254,22 @@ class TiledRenderingEngine extends BaseRenderingEngine {
     if (viewportInputEntries.length) {
       // 1. Getting all the canvases from viewports calculation of the new offScreen size
       const vtkDrivenCanvases = viewportInputEntries.map((vp) =>
-        getOrCreateCanvas(vp.element)
+        getOrCreateCanvas(
+          vp.element,
+          getViewportRenderScale({ defaultOptions: vp.defaultOptions })
+        )
       );
 
       // Ensure the canvas size includes any scaling due to device pixel ratio
-      vtkDrivenCanvases.forEach((canvas) => {
+      vtkDrivenCanvases.forEach((canvas, index) => {
         const devicePixelRatio = window.devicePixelRatio || 1;
+        const renderScale = getViewportRenderScale({
+          defaultOptions: viewportInputEntries[index].defaultOptions,
+        });
 
         const rect = canvas.getBoundingClientRect();
-        canvas.width = rect.width * devicePixelRatio;
-        canvas.height = rect.height * devicePixelRatio;
+        canvas.width = rect.width * devicePixelRatio * renderScale;
+        canvas.height = rect.height * devicePixelRatio * renderScale;
       });
 
       // 2. Set canvas size based on height and sum of widths
@@ -294,15 +317,16 @@ class TiledRenderingEngine extends BaseRenderingEngine {
     // Ensure all the canvases are ready for rendering
     const canvasesDrivenByVtkJs = vtkDrivenViewports.map(
       (vp: IStackViewport | IVolumeViewport) => {
-        return getOrCreateCanvas(vp.element);
+        return getOrCreateCanvas(vp.element, getViewportRenderScale(vp));
       }
     );
 
     // reset the canvas size to the client size
-    canvasesDrivenByVtkJs.forEach((canvas) => {
+    canvasesDrivenByVtkJs.forEach((canvas, index) => {
       const devicePixelRatio = window.devicePixelRatio || 1;
-      canvas.width = canvas.clientWidth * devicePixelRatio;
-      canvas.height = canvas.clientHeight * devicePixelRatio;
+      const renderScale = getViewportRenderScale(vtkDrivenViewports[index]);
+      canvas.width = canvas.clientWidth * devicePixelRatio * renderScale;
+      canvas.height = canvas.clientHeight * devicePixelRatio * renderScale;
     });
 
     if (canvasesDrivenByVtkJs.length) {

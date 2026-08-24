@@ -53,6 +53,18 @@ import { getCubeSizeInView } from '../utilities/getPlaneCubeIntersectionDimensio
 import { getConfiguration } from '../init';
 import type { extendedVtkCamera } from './vtkClasses/extendedVtkCamera';
 
+const getDisplayCanvasSize = (viewport: {
+  canvas?: HTMLCanvasElement;
+  sWidth: number;
+  sHeight: number;
+}): [number, number] => {
+  const devicePixelRatio = window.devicePixelRatio || 1;
+  return [
+    viewport.canvas?.clientWidth || viewport.sWidth / devicePixelRatio,
+    viewport.canvas?.clientHeight || viewport.sHeight / devicePixelRatio,
+  ];
+};
+
 /**
  * An object representing a single viewport, which is a camera
  * looking into a viewport, and an associated target output `HTMLDivElement`.
@@ -192,7 +204,7 @@ class Viewport {
   worldToCanvas: (worldPos: Point3) => Point2;
   customRenderViewportToCanvas: () => unknown;
   resize: () => void;
-  getProperties: () => ViewportProperties = () => ({});
+  getProperties: () => ViewportProperties | undefined | null = () => ({});
   updateRenderingPipeline: () => void;
   getNumberOfSlices: () => number;
   protected setRotation = (_rotation: number) => {
@@ -1030,13 +1042,11 @@ class Viewport {
   protected setDisplayAreaFit(displayArea: DisplayArea) {
     const { imageArea, imageCanvasPoint } = displayArea;
 
-    const devicePixelRatio = window?.devicePixelRatio || 1;
     const imageData = this.getDefaultImageData();
     if (!imageData) {
       return;
     }
-    const canvasWidth = this.sWidth / devicePixelRatio;
-    const canvasHeight = this.sHeight / devicePixelRatio;
+    const [canvasWidth, canvasHeight] = getDisplayCanvasSize(this);
     const dimensions = imageData.getDimensions() as ReadonlyVec3;
     const canvasZero = this.worldToCanvas(
       imageData.indexToWorld([0, 0, 0]) as Point3
@@ -1201,7 +1211,13 @@ class Viewport {
           viewPlaneNormal
         );
 
-    const canvasSize = [this.sWidth, this.sHeight];
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    const [displayCanvasWidth, displayCanvasHeight] =
+      getDisplayCanvasSize(this);
+    const canvasSize = [
+      displayCanvasWidth * devicePixelRatio,
+      displayCanvasHeight * devicePixelRatio,
+    ];
 
     const boundsAspectRatio = widthWorld / heightWorld;
     const canvasAspectRatio = canvasSize[0] / canvasSize[1];

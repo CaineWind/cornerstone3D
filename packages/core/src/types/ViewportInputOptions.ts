@@ -23,6 +23,8 @@ interface ViewportInputOptions {
   parallelProjection?: boolean;
   /** aspect ratio as [width, height] */
   aspectRatio?: Point2;
+  /** Internal render resolution multiplier. Must be greater than 0 and at most 1. */
+  renderScale?: number;
 }
 
 export type { ViewportInputOptions as default };
